@@ -1,8 +1,12 @@
 #! /bin/bash
 
-LOG_CMD="git --no-pager log $1..$2"
+BASE=${1:-origin/release}
+CURRENT=${2:-HEAD}
+LOG_CMD="git --no-pager log $BASE..$CURRENT"
 
 RESPONSIBLE=$(sort -u <($LOG_CMD --format='tformat:%ae' && $LOG_CMD --format='tformat:%ce'))
+
+echo "Comparing $BASE to $CURRENT"
 
 echo "~~~~ Email ~~~~~"
 
