@@ -17,7 +17,7 @@ from django.core.urlresolvers import reverse
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 
-from student.models import UserProfile, TestCenterUser, TestCenterRegistration
+from student.models import TestCenterUser, TestCenterRegistration
 
 from django.http import HttpResponse, HttpResponseRedirect, HttpRequest
 from django.utils.http import urlquote
@@ -50,6 +50,7 @@ from xmodule.modulestore import Location
 from xmodule.modulestore.exceptions import ItemNotFoundError
 
 log = logging.getLogger("mitx.external_auth")
+audit_log = logging.getLogger("audit")
 
 
 # -----------------------------------------------------------------------------
@@ -109,7 +110,7 @@ def openid_login_complete(request,
         fullname = '%s %s' % (details.get('first_name', ''),
                               details.get('last_name', ''))
 
-        return external_login_or_signup(request,
+        return _external_login_or_signup(request,
                                         external_id,
                                         external_domain,
                                         details,
@@ -119,7 +120,7 @@ def openid_login_complete(request,
     return render_failure(request, 'Openid failure')
 
 
-def external_login_or_signup(request,
+def _external_login_or_signup(request,
                              external_id,
                              external_domain,
                              credentials,
@@ -184,20 +185,21 @@ def external_login_or_signup(request,
         else:
             auth_backend = 'django.contrib.auth.backends.ModelBackend'
         user.backend = auth_backend
-        log.info('SHIB: Logging in linked user %s', user.email)
+        audit_log.info('Linked user "%s" logged in via Shibboleth', user.email)
     else:
         uname = internal_user.username
         user = authenticate(username=uname, password=eamap.internal_password)
     if user is None:
-        log.warning("External Auth Login failed for %s / %s",
-                    uname, eamap.internal_password)
+        # we want to log the failure, but don't want to log the password attempted:
+        audit_log.warning('External Auth Login failed for "%s"', uname)
         return signup(request, eamap)
 
     if not user.is_active:
-        log.warning("User %s is not active", uname)
+        audit_log.warning('User "%s" is not active after external login', uname)
         # TODO: improve error page
         msg = 'Account not yet activated: please look for link in your email'
         return default_render_failure(request, msg)
+
     login(request, user)
     request.session.set_expiry(0)
 
@@ -205,11 +207,11 @@ def external_login_or_signup(request,
     # Need to special case Shibboleth here because it logs in via a GET.
     # testing request.method for extra paranoia
     if settings.MITX_FEATURES.get('AUTH_USE_SHIB') and 'shib:' in external_domain and request.method == 'GET':
-        enroll_request = make_shib_enrollment_request(request)
+        enroll_request = _make_shib_enrollment_request(request)
         student_views.try_change_enrollment(enroll_request)
     else:
         student_views.try_change_enrollment(request)
-    log.info("Login success - %s (%s)", user.username, user.email)
+    audit_log.info("Login success - %s (%s)", user.username, user.email)
     if retfun is None:
         return redirect('/')
     return retfun()
@@ -224,7 +226,7 @@ def signup(request, eamap=None):
     to create an account on the edX system, and fill in the user
     registration form.
 
-    eamap is an ExteralAuthMap object, specifying the external user
+    eamap is an ExternalAuthMap object, specifying the external user
     for which to complete the signup.
     """
 
@@ -329,7 +331,7 @@ def ssl_login_shortcut(fn):
             return fn(*args, **kwargs)
 
         (user, email, fullname) = ssl_dn_extract_info(cert)
-        return external_login_or_signup(request,
+        return _external_login_or_signup(request,
                                         external_id=email,
                                         external_domain="ssl:MIT",
                                         credentials=cert,
@@ -361,10 +363,10 @@ def ssl_login(request):
         # no certificate information - go onward to main index
         return student_views.index(request)
 
-    (user, email, fullname) = ssl_dn_extract_info(cert)
+    (_user, email, fullname) = ssl_dn_extract_info(cert)
 
     retfun = functools.partial(student_views.index, request)
-    return external_login_or_signup(request,
+    return _external_login_or_signup(request,
                                     external_id=email,
                                     external_domain="ssl:MIT",
                                     credentials=cert,
@@ -396,19 +398,20 @@ def shib_login(request):
         log.error("SHIB: no Shib-Identity-Provider in request.META")
         return default_render_failure(request, shib_error_msg)
     else:
-        #if we get here, the user has authenticated properly
+        # If we get here, the user has authenticated properly
         shib = {attr: request.META.get(attr, '')
                 for attr in ['REMOTE_USER', 'givenName', 'sn', 'mail', 'Shib-Identity-Provider']}
 
-        #Clean up first name, last name, and email address
-        #TODO: Make this less hardcoded re: format, but split will work
-        #even if ";" is not present since we are accessing 1st element
+        # Clean up first name, last name, and email address
+        # TODO: Make this less hardcoded re: format, but split will work
+        # even if ";" is not present, since we are accessing 1st element
         shib['sn'] = shib['sn'].split(";")[0].strip().capitalize().decode('utf-8')
         shib['givenName'] = shib['givenName'].split(";")[0].strip().capitalize().decode('utf-8')
 
+    # TODO: should we be logging creds here, at info level?
     log.info("SHIB creds returned: %r", shib)
 
-    return external_login_or_signup(request,
+    return _external_login_or_signup(request,
                                     external_id=shib['REMOTE_USER'],
                                     external_domain="shib:" + shib['Shib-Identity-Provider'],
                                     credentials=shib,
@@ -417,7 +420,7 @@ def shib_login(request):
                                     )
 
 
-def make_shib_enrollment_request(request):
+def _make_shib_enrollment_request(request):
     """
         Need this hack function because shibboleth logins don't happen over POST
         but change_enrollment expects its request to be a POST, with
@@ -452,14 +455,14 @@ def course_specific_login(request, course_id):
     try:
         course = course_from_id(course_id)
     except ItemNotFoundError:
-        #couldn't find the course, will just return vanilla signin page
+        # couldn't find the course, will just return vanilla signin page
         return redirect_with_querystring('signin_user', query_string)
 
-    #now the dispatching conditionals.  Only shib for now
+    # now the dispatching conditionals.  Only shib for now
     if settings.MITX_FEATURES.get('AUTH_USE_SHIB') and 'shib:' in course.enrollment_domain:
         return redirect_with_querystring('shib-login', query_string)
 
-    #Default fallthrough to normal signin page
+    # Default fallthrough to normal signin page
     return redirect_with_querystring('signin_user', query_string)
 
 
@@ -702,7 +705,7 @@ def provider_login(request):
         except User.DoesNotExist:
             request.session['openid_error'] = True
             msg = "OpenID login failed - Unknown user email: %s"
-            log.warning(msg, email)
+            audit_log.warning(msg, email)
             return HttpResponseRedirect(openid_request_url)
 
         # attempt to authenticate user (but not actually log them in...)
@@ -713,7 +716,7 @@ def provider_login(request):
         if user is None:
             request.session['openid_error'] = True
             msg = "OpenID login failed - password for %s is invalid"
-            log.warning(msg, email)
+            audit_log.warning(msg, email)
             return HttpResponseRedirect(openid_request_url)
 
         # authentication succeeded, so fetch user information
@@ -723,8 +726,8 @@ def provider_login(request):
             if 'openid_error' in request.session:
                 del request.session['openid_error']
 
-            log.info("OpenID login success - %s (%s)",
-                     user.username, user.email)
+            audit_log.info("OpenID login success - %s (%s)",
+                           user.username, user.email)
 
             # redirect user to return_to location
             url = endpoint + urlquote(user.username)

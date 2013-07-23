@@ -56,6 +56,8 @@ from statsd import statsd
 from pytz import UTC
 
 log = logging.getLogger("mitx.student")
+audit_log = logging.getLogger("audit")
+
 Article = namedtuple('Article', 'title url author image deck publication publish_date')
 
 
@@ -425,14 +427,14 @@ def login_user(request, error=""):
     try:
         user = User.objects.get(email=email)
     except User.DoesNotExist:
-        log.warning(u"Login failed - Unknown user email: {0}".format(email))
+        audit_log.warning(u"Login failed - Unknown user email: {0}".format(email))
         return HttpResponse(json.dumps({'success': False,
                                         'value': _('Email or password is incorrect.')}))  # TODO: User error message
 
     username = user.username
     user = authenticate(username=username, password=password)
     if user is None:
-        log.warning(u"Login failed - password for {0} is invalid".format(email))
+        audit_log.warning(u"Login failed - password for {0} is invalid".format(email))
         return HttpResponse(json.dumps({'success': False,
                                         'value': _('Email or password is incorrect.')}))
 
@@ -445,14 +447,16 @@ def login_user(request, error=""):
             else:
                 request.session.set_expiry(0)
         except Exception as e:
+            audit_log.critical("Login failed - Could not create session. Is memcached running?")
             log.critical("Login failed - Could not create session. Is memcached running?")
             log.exception(e)
+            raise
 
-        log.info(u"Login success - {0} ({1})".format(username, email))
+        audit_log.info(u"Login success - {0} ({1})".format(username, email))
 
         try_change_enrollment(request)
 
-        statsd.increment(_("common.student.successful_login"))
+        statsd.increment("common.student.successful_login")
         response = HttpResponse(json.dumps({'success': True}))
 
         # set the login cookie for the edx marketing site
@@ -476,7 +480,7 @@ def login_user(request, error=""):
 
         return response
 
-    log.warning(u"Login failed - Account not active for user {0}, resending activation".format(username))
+    audit_log.warning(u"Login failed - Account not active for user {0}, resending activation".format(username))
 
     reactivation_email_for_user(user)
     not_activated_msg = _("This account has not been activated. We have sent another activation message. Please check your e-mail for the activation instructions.")
@@ -493,6 +497,7 @@ def logout_user(request):
     '''
 
     logout(request)
+    audit_log.info(u"Logout - {0}".format(request.user))
     response = redirect('/')
     response.delete_cookie(settings.EDXMKTG_COOKIE_NAME,
                            path='/',
@@ -631,7 +636,7 @@ def create_account(request, post_override=None):
 
     required_post_vars = ['username', 'email', 'name', 'password', 'terms_of_service', 'honor_code']
     if tos_not_required:
-        required_post_vars =  ['username', 'email', 'name', 'password', 'honor_code']
+        required_post_vars = ['username', 'email', 'name', 'password', 'honor_code']
 
     for a in required_post_vars:
         if len(post_vars[a]) < 2:
@@ -697,17 +702,23 @@ def create_account(request, post_override=None):
     login(request, login_user)
     request.session.set_expiry(0)
 
+    # TODO: there is no error checking here to see that the user actually logged in successfully,
+    # and is not yet an active user.
+    if login_user is not None:
+        audit_log.info(u"Login success on new account creation - {0}".format(login_user.username))
+
     if DoExternalAuth:
         eamap.user = login_user
         eamap.dtsignup = datetime.datetime.now(UTC)
         eamap.save()
-        log.info("User registered with external_auth %s" % post_vars['username'])
-        log.info('Updated ExternalAuthMap for %s to be %s' % (post_vars['username'], eamap))
+        audit_log.info("User registered with external_auth %s" % post_vars['username'])
+        audit_log.info('Updated ExternalAuthMap for %s to be %s' % (post_vars['username'], eamap))
 
         if settings.MITX_FEATURES.get('BYPASS_ACTIVATION_EMAIL_FOR_EXTAUTH'):
             log.info('bypassing activation email')
             login_user.is_active = True
             login_user.save()
+            audit_log.info(u"Login activated on extauth account - {0} ({1})".format(login_user.username, login_user.email))
 
     try_change_enrollment(request)
 
