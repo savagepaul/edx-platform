@@ -1,9 +1,10 @@
 import requests
 import logging
 
+from django.http import HttpResponseBadRequest
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from mitxmako.shortcuts import render_to_string
-from django_future.csrf import ensure_csrf_cookie, render_to_response
+from mitxmako.shortcuts import render_to_string, render_to_response
+from django_future.csrf import ensure_csrf_cookie
 import enchant
 
 from courseware.courses import get_course_with_access
@@ -28,11 +29,11 @@ def search(request, course_id):
 @ensure_csrf_cookie
 def index_course(request):
     indexer = MongoIndexer()
-    try:
-        indexer.index_course(request.POST["course"])
-    except KeyError:
+    if "type_id" in request.POST.keys():
+        indexer.index_course(request.POST["type_id"])
         return render_to_response(status=204)
-    return render_to_response("")
+    else:
+        return HttpResponseBadRequest()
 
 
 def find(request, course_id, database="http://127.0.0.1:9200",

@@ -77,7 +77,7 @@ function getParameters(){
 
 function constructSearchBox(value){
     var searchWrapper = document.createElement("div");
-    searchWrapper.className = "search-wrapper";
+    searchWrapper.className = "animated fadeInRight search-wrapper";
     searchWrapper.id = "search-wrapper";
 
     var searchForm = document.createElement("form");
@@ -87,7 +87,7 @@ function constructSearchBox(value){
     searchForm.method = "get";
 
     var searchBoxWrapper = document.createElement("div");
-    searchBoxWrapper.className = "animate fadeInRight searchbox-wrapper";
+    searchBoxWrapper.className = "searchbox-wrapper";
 
     var searchBox = document.createElement("input");
     searchBox.id = "searchbox";
@@ -105,10 +105,14 @@ function constructSearchBox(value){
 
 function replaceWithSearch(){
     var searchWrapper = constructSearchBox("");
-    this.parentNode.replaceChild(searchWrapper, this);
-    if (document.URL.indexOf("search?s=") == -1){
-        document.getElementById("searchbox").focus();
-    }
+    $(this).addClass("animated fadeOut");
+    $(this).on('webkitAnimationEnd oanimationend oAnimationEnd msAnimationEnd animationend',
+        function (e){
+            $(this).parent().replaceWith(searchWrapper);
+            if (document.URL.indexOf("search?s=") == -1){
+                document.getElementById("searchbox").focus();
+        }
+    });
 }
 
 function updateOldSearch(){
