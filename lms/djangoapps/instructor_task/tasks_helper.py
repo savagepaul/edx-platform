@@ -292,9 +292,12 @@ def _get_module_instance_for_task(course_id, student, module_descriptor, xmodule
     xqueue_callback_url_prefix = xmodule_instance_args.get('xqueue_callback_url_prefix', '') \
         if xmodule_instance_args is not None else ''
 
-    return get_module_for_descriptor_internal(student, module_descriptor, model_data_cache, course_id,
-                                              make_track_function(), xqueue_callback_url_prefix,
-                                              grade_bucket_type=grade_bucket_type)
+    _, module = get_module_for_descriptor_internal(
+        student, module_descriptor, model_data_cache, course_id,
+        make_track_function(), xqueue_callback_url_prefix,
+        grade_bucket_type=grade_bucket_type
+    )
+    return module
 
 
 @transaction.autocommit

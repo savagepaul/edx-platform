@@ -93,9 +93,9 @@ def toc_for_course(user, request, course, active_chapter, active_section, model_
     model_data_cache must include data from the course module and 2 levels of its descendents
     '''
 
-    course_module = get_module_for_descriptor(user, request, course, model_data_cache, course.id)
+    runtime, course_module = get_module_for_descriptor(user, request, course, model_data_cache, course.id)
     if course_module is None:
-        return None
+        return None, None
 
     chapters = list()
     for chapter in course_module.get_display_items():
@@ -144,9 +144,11 @@ def get_module(user, request, location, model_data_cache, course_id,
       - depth                 : number of levels of descendents to cache when loading this module.
                                 None means cache all descendents
 
-    Returns: xmodule instance, or None if the user does not have access to the
-    module.  If there's an error, will try to return an instance of ErrorModule
-    if possible.  If not possible, return None.
+    Returns: A tuple (runtime, xmodule), where
+        runtime: The XBlock runtime to be used for rendering this xmodule
+        xmodule: an xmodule instance, or None if the user does not have access to the
+            module.  If there's an error, will try to return an instance of ErrorModule
+            if possible.  If not possible, return None.
     """
     try:
         location = Location(location)
@@ -158,11 +160,11 @@ def get_module(user, request, location, model_data_cache, course_id,
     except ItemNotFoundError:
         if not not_found_ok:
             log.exception("Error in get_module")
-        return None
+        return None, None
     except:
         # Something has gone terribly wrong, but still not letting it turn into a 500.
         log.exception("Error in get_module")
-        return None
+        return None, None
 
 
 def get_xqueue_callback_url_prefix(request):
@@ -210,7 +212,7 @@ def get_module_for_descriptor_internal(user, descriptor, model_data_cache, cours
 
     # Short circuit--if the user shouldn't have access, bail without doing any work
     if not has_access(user, descriptor, 'load', course_id):
-        return None
+        return None, None
 
     # Setup system context for module instance
     ajax_url = reverse(
@@ -282,9 +284,12 @@ def get_module_for_descriptor_internal(user, descriptor, model_data_cache, cours
         """
         # TODO: fix this so that make_xqueue_callback uses the descriptor passed into
         # inner_get_module, not the parent's callback.  Add it as an argument....
-        return get_module_for_descriptor_internal(user, descriptor, model_data_cache, course_id,
-                                                  track_function, make_xqueue_callback,
-                                                  position, wrap_xmodule_display, grade_bucket_type)
+        _, module = get_module_for_descriptor_internal(
+            user, descriptor, model_data_cache, course_id,
+            track_function, make_xqueue_callback,
+            position, wrap_xmodule_display, grade_bucket_type
+        )
+        return module
 
     def xblock_model_data(descriptor):
         return DbModel(
@@ -424,7 +429,7 @@ def get_module_for_descriptor_internal(user, descriptor, model_data_cache, cours
 
     # force the module to save after rendering
     module.get_html = save_module(module.get_html, module)
-    return module
+    return system, module
 
 
 def find_target_student_module(request, user_id, course_id, mod_id):
@@ -439,7 +444,7 @@ def find_target_student_module(request, user_id, course_id, mod_id):
         depth=0,
         select_for_update=True
     )
-    instance = get_module(user, request, mod_id, model_data_cache, course_id, grade_bucket_type='xqueue')
+    runtime, instance = get_module(user, request, mod_id, model_data_cache, course_id, grade_bucket_type='xqueue')
     if instance is None:
         msg = "No module {0} for user {1}--access denied?".format(mod_id, user)
         log.debug(msg)
@@ -539,7 +544,7 @@ def modx_dispatch(request, dispatch, location, course_id):
         descriptor
     )
 
-    instance = get_module(request.user, request, location, model_data_cache, course_id, grade_bucket_type='ajax')
+    runtime, instance = get_module(request.user, request, location, model_data_cache, course_id, grade_bucket_type='ajax')
     if instance is None:
         # Either permissions just changed, or someone is trying to be clever
         # and load something they shouldn't have access to.

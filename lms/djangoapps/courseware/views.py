@@ -310,7 +310,7 @@ def index(request, course_id, chapter=None, section=None,
         model_data_cache = ModelDataCache.cache_for_descriptor_descendents(
             course.id, user, course, depth=2)
 
-        course_module = get_module_for_descriptor(user, request, course, model_data_cache, course.id)
+        runtime, course_module = get_module_for_descriptor(user, request, course, model_data_cache, course.id)
         if course_module is None:
             log.warning('If you see this, something went wrong: if we got this'
                         ' far, should have gotten a course module for this user')
@@ -374,7 +374,7 @@ def index(request, course_id, chapter=None, section=None,
             # html, which in general will need all of its children
             section_model_data_cache = ModelDataCache.cache_for_descriptor_descendents(
                 course_id, user, section_descriptor, depth=None)
-            section_module = get_module(request.user, request,
+            runtime, section_module = get_module(request.user, request,
                                 section_descriptor.location,
                                 section_model_data_cache, course_id, position, depth=None)
 
@@ -400,7 +400,7 @@ def index(request, course_id, chapter=None, section=None,
                 # add in the appropriate timer information to the rendering context:
                 context.update(check_for_active_timelimit_module(request, course_id, course))
 
-            context['content'] = section_module.get_html()
+            context['content'] = runtime.render(section_module, None, 'student_view').content
         else:
             # section is none, so display a message
             prev_section = get_current_child(chapter_module)

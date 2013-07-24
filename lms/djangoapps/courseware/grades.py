@@ -77,7 +77,7 @@ def yield_problems(request, course, student):
 
     model_data_cache = ModelDataCache(sections_to_list, course.id, student)
     for section_descriptor in sections_to_list:
-        section_module = get_module(student, request,
+        runtime, section_module = get_module(student, request,
                                     section_descriptor.location, model_data_cache,
                                     course.id)
         if section_module is None:
@@ -181,7 +181,8 @@ def grade(student, request, course, model_data_cache=None, keep_raw_scores=False
                     '''creates an XModule instance given a descriptor'''
                     # TODO: We need the request to pass into here. If we could forego that, our arguments
                     # would be simpler
-                    return get_module_for_descriptor(student, request, descriptor, model_data_cache, course.id)
+                    _, module = get_module_for_descriptor(student, request, descriptor, model_data_cache, course.id)
+                    return module
 
                 for module_descriptor in yield_dynamic_descriptor_descendents(section_descriptor, create_module):
 
@@ -281,7 +282,7 @@ def progress_summary(student, request, course, model_data_cache):
 
     # TODO: We need the request to pass into here. If we could forego that, our arguments
     # would be simpler
-    course_module = get_module(student, request, course.location, model_data_cache, course.id, depth=None)
+    runtime, course_module = get_module(student, request, course.location, model_data_cache, course.id, depth=None)
     if not course_module:
         # This student must not have access to the course.
         return None

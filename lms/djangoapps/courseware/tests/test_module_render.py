@@ -49,8 +49,10 @@ class ModuleRenderTestCase(LoginEnrollmentTestCase):
                                                                    dispatch=self.dispatch))
 
     def test_get_module(self):
-        self.assertIsNone(render.get_module('dummyuser', None,
-                                            'invalid location', None, None))
+        self.assertEqual(
+            (None, None),
+            render.get_module('dummyuser', None, 'invalid location', None, None)
+        )
 
     def test_module_render_with_jump_to_id(self):
         """

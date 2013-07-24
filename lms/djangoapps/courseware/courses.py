@@ -150,7 +150,7 @@ def get_course_about_section(course, section_key):
 
             # Use an empty cache
             model_data_cache = ModelDataCache([], course.id, request.user)
-            about_module = get_module(
+            runtime, about_module = get_module(
                 request.user,
                 request,
                 loc,
@@ -163,7 +163,7 @@ def get_course_about_section(course, section_key):
             html = ''
 
             if about_module is not None:
-                html = about_module.get_html()
+                html = runtime.render(about_module, None, 'student_view').content
 
             return html
 
@@ -199,7 +199,7 @@ def get_course_info_section(request, course, section_key):
 
     # Use an empty cache
     model_data_cache = ModelDataCache([], course.id, request.user)
-    info_module = get_module(
+    runtime, info_module = get_module(
         request.user,
         request,
         loc,
@@ -211,7 +211,7 @@ def get_course_info_section(request, course, section_key):
     html = ''
 
     if info_module is not None:
-        html = info_module.get_html()
+        html = runtime.render(info_module, None, 'student_view').content
 
     return html
 
