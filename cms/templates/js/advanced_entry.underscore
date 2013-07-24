@@ -6,6 +6,6 @@
 
   <div class="field text value">
     <label for="<%= valueUniqueId %>">Policy Value:</label>
-    <textarea class="json text" id="<%= valueUniqueId %>"><%= value %></textarea>
+    <div class="json text editor" id="<%= valueUniqueId %>"></div>
   </div>
 </li>

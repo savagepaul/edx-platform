@@ -30,66 +30,63 @@ CMS.Views.Settings.Advanced = CMS.Views.ValidatingView.extend({
         var self = this;
         _.each(_.sortBy(_.keys(this.model.attributes), _.identity),
             function(key) {
-                listEle$.append(self.renderTemplate(key, self.model.get(key)));
+                var li = $(self.renderTemplate(key));
+                listEle$.append(li);
+                var editor_element = li.find("div.editor").get(0);
+                self.attachJSONEditor(editor_element, self.model.get(key));
             });
 
-        var policyValues = listEle$.find('.json');
-        _.each(policyValues, this.attachJSONEditor, this);
         return this;
     },
-    attachJSONEditor : function (textarea) {
-        // Since we are allowing duplicate keys at the moment, it is possible that we will try to attach
-        // JSON Editor to a value that already has one. Therefore only attach if no CodeMirror peer exists.
-        if ( $(textarea).siblings().hasClass('CodeMirror')) {
-            return;
-        }
-
+    attachJSONEditor : function (element, obj) {
         var self = this;
-        var oldValue = $(textarea).val();
-        CodeMirror.fromTextArea(textarea, {
-            mode: "application/json", lineNumbers: false, lineWrapping: false,
-            onChange: function(instance, changeobj) {
-                instance.save();
-                // this event's being called even when there's no change :-(
-                if (instance.getValue() !== oldValue) {
-                    var message = gettext("Your changes will not take effect until you save your progress. Take care with key and value formatting, as validation is not implemented.");
-                    self.showNotificationBar(message,
-                                             _.bind(self.saveView, self),
-                                             _.bind(self.revertView, self));
-                }
-            },
-            onFocus : function(mirror) {
-              $(textarea).parent().children('label').addClass("is-focused");
-            },
-            onBlur: function (mirror) {
-                $(textarea).parent().children('label').removeClass("is-focused");
-                var key = $(mirror.getWrapperElement()).closest('.field-group').children('.key').attr('id');
-                var stringValue = $.trim(mirror.getValue());
-                // update CodeMirror to show the trimmed value.
-                mirror.setValue(stringValue);
-                var JSONValue = undefined;
-                try {
-                    JSONValue = JSON.parse(stringValue);
-                } catch (e) {
-                    // If it didn't parse, try converting non-arrays/non-objects to a String.
-                    // But don't convert single-quote strings, which are most likely errors.
-                    var firstNonWhite = stringValue.substring(0, 1);
-                    if (firstNonWhite !== "{" && firstNonWhite !== "[" && firstNonWhite !== "'") {
-                        try {
-                            stringValue = '"'+stringValue +'"';
-                            JSONValue = JSON.parse(stringValue);
-                            mirror.setValue(stringValue);
-                        } catch(quotedE) {
-                            // TODO: validation error
-                            // console.log("Error with JSON, even after converting to String.");
-                            // console.log(quotedE);
-                            JSONValue = undefined;
-                        }
+        $(element).css({height: "10em", width: "25em"});
+        var editor = ace.edit(element);
+        editor.setTheme("ace/theme/chrome");
+        editor.getSession().setMode("ace/mode/json");
+        editor.setFontSize(20);
+        editor.setOption("showGutter", false);
+        value = JSON.stringify(obj, null, "  ");
+        editor.setValue(value);
+        editor.on("change", function(e) {
+            if (editor.getValue() !== value) {
+                var message = gettext("Your changes will not take effect until you save your progress. Take care with key and value formatting, as validation is not implemented.");
+                self.showNotificationBar(message,
+                                     _.bind(self.saveView, self),
+                                     _.bind(self.revertView, self));
+            }
+        });
+        editor.on("focus", function() {
+            $(element).parent().children('label').addClass("is-focused");
+        });
+        editor.on("blur", function() {
+            $(element).parent().children('label').removeClass("is-focused");
+            var key = $(editor.container).closest('.field-group').children('.key').attr('id');
+            var stringValue = $.trim(editor.getValue());
+            // update ace to show the trimmed value.
+            editor.setValue(stringValue);
+            var JSONValue;
+            try {
+                JSONValue = JSON.parse(stringValue);
+            } catch (e) {
+                // If it didn't parse, try converting non-arrays/non-objects to a String.
+                // But don't convert single-quote strings, which are most likely errors.
+                var firstNonWhite = stringValue.substring(0, 1);
+                if (firstNonWhite !== "{" && firstNonWhite !== "[" && firstNonWhite !== "'") {
+                    try {
+                        stringValue = '"'+stringValue +'"';
+                        JSONValue = JSON.parse(stringValue);
+                        mirror.setValue(stringValue);
+                    } catch(quotedE) {
+                        // TODO: validation error
+                        // console.log("Error with JSON, even after converting to String.");
+                        // console.log(quotedE);
+                        JSONValue = undefined;
                     }
                 }
-                if (JSONValue !== undefined) {
-                    self.model.set(key, JSONValue);
-                }
+            }
+            if (JSONValue !== undefined) {
+                self.model.set(key, JSONValue);
             }
         });
     },
