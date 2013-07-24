@@ -30,6 +30,26 @@
         $("label").parent().removeClass("is-focused");
       });
     });
+    
+    // checks whether or not the url is external to the local site.
+    // generously provided by StackOverflow: http://stackoverflow.com/questions/6238351/fastest-way-to-detect-external-urls
+    function isExternal(url) {
+        // An explanation for this regex can be found here: http://tools.ietf.org/html/rfc3986#appendix-B
+        var match = url.match(/^([^:\/?#]+:)?(?:\/\/([^\/?#]*))?([^?#]+)?(\?[^#]*)?(#.*)?/);
+        // match[1] matches a protocol if one exists in the url
+        // if the protocol does not match the protocol, this url is considered external
+        if (typeof match[1] === "string" && 
+                match[1].length > 0 
+                && match[1].toLowerCase() !== location.protocol) 
+            return true;
+        // match[2] matches the host if one exists in the url
+        // if the host does not match the host of the current location, this url is considered external
+        if (typeof match[2] === "string" && 
+                match[2].length > 0 && 
+                match[2].replace(new RegExp(":("+{"http:":80,"https:":443}[location.protocol]+")?$"), "") !== location.host) 
+            return true;
+        return false;
+    }
 
     (function() {
       toggleSubmitButton(true);
@@ -46,7 +66,7 @@
         if(json.success) {
           var u=decodeURI(window.location.search);
           next=u.split("next=")[1];
-          if (next) {
+          if (next && !isExternal(next)) {
             location.href=next;
           }  else {
             location.href="${reverse('dashboard')}";
