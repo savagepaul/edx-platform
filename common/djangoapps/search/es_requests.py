@@ -5,13 +5,14 @@ import re
 import urllib
 import base64
 import hashlib
+from cStringIO import StringIO as cIO
+from StringIO import StringIO as IO
+
 from pymongo import MongoClient
 from pdfminer.pdfinterp import PDFResourceManager, process_pdf
 from pdfminer.converter import TextConverter
 from pdfminer.layout import LAParams
 from pdfminer.pdfparser import PDFSyntaxError
-from cStringIO import StringIO as cIO
-from StringIO import StringIO as IO
 from wand.image import Image
 from wand.exceptions import DelegateError, MissingDelegateError, CorruptImageError
 from xhtml2pdf import pisa as pisa

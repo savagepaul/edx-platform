@@ -1,10 +1,6 @@
 function indexCourses(){
     var course = "";
-    try{
-        course = document.URL.split("/")[4];
-    } catch(err){
-        console.log(err);
-    }
+    course = document.URL.split("/")[4];
     var url = window.location.host + "/index";
     $.ajax({
         type: "POST",
