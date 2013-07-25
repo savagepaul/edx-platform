@@ -176,8 +176,8 @@ def _external_login_or_signup(request,
             return signup(request, eamap)
 
     # We trust shib's authentication, so no need to authenticate using the password again
-    if settings.MITX_FEATURES.get('AUTH_USE_SHIB'):
-        uname = internal_user.username
+    uname = internal_user.username
+    if settings.MITX_FEATURES.get('AUTH_USE_SHIB') and external_domain.startswith('shib:'):
         user = internal_user
         # Assuming this 'AUTHENTICATION_BACKENDS' is set in settings, which I think is safe
         if settings.AUTHENTICATION_BACKENDS:
@@ -187,7 +187,6 @@ def _external_login_or_signup(request,
         user.backend = auth_backend
         audit_log.info('Linked user "%s" logged in via Shibboleth', user.email)
     else:
-        uname = internal_user.username
         user = authenticate(username=uname, password=eamap.internal_password)
     if user is None:
         # we want to log the failure, but don't want to log the password attempted:
@@ -206,7 +205,7 @@ def _external_login_or_signup(request,
     # Now to try enrollment
     # Need to special case Shibboleth here because it logs in via a GET.
     # testing request.method for extra paranoia
-    if settings.MITX_FEATURES.get('AUTH_USE_SHIB') and 'shib:' in external_domain and request.method == 'GET':
+    if settings.MITX_FEATURES.get('AUTH_USE_SHIB') and external_domain.startswith('shib:') and request.method == 'GET':
         enroll_request = _make_shib_enrollment_request(request)
         student_views.try_change_enrollment(enroll_request)
     else:
@@ -758,7 +757,7 @@ def provider_login(request):
         # the account is not active, so redirect back to the login page:
         request.session['openid_error'] = True
         msg = "Login failed - Account not active for user %s"
-        log.warning(msg, username)
+        audit_log.warning(msg, username)
         return HttpResponseRedirect(openid_request_url)
 
     # determine consumer domain if applicable
@@ -859,8 +858,10 @@ def test_center_login(request):
     try:
         testcenteruser = TestCenterUser.objects.get(client_candidate_id=client_candidate_id)
     except TestCenterUser.DoesNotExist:
-        log.error("not able to find demographics for cand ID {}".format(client_candidate_id))
+        audit_log.error("not able to find demographics for cand ID {}".format(client_candidate_id))
         return HttpResponseRedirect(makeErrorURL(error_url, "invalidClientCandidateID"))
+
+    audit_log.info("Attempting to log in test-center user '{}' for test of cand {}".format(testcenteruser.user.username, client_candidate_id))
 
     # find testcenter_registration that matches the provided exam code:
     # Note that we could rely in future on either the registrationId or the exam code,
@@ -870,13 +871,13 @@ def test_center_login(request):
         # we are not allowed to make up a new error code, according to Pearson,
         # so instead of "missingExamSeriesCode", we use a valid one that is
         # inaccurate but at least distinct.  (Sigh.)
-        log.error("missing exam series code for cand ID {}".format(client_candidate_id))
+        audit_log.error("missing exam series code for cand ID {}".format(client_candidate_id))
         return HttpResponseRedirect(makeErrorURL(error_url, "missingPartnerID"))
     exam_series_code = request.POST.get('vueExamSeriesCode')
 
     registrations = TestCenterRegistration.objects.filter(testcenter_user=testcenteruser, exam_series_code=exam_series_code)
     if not registrations:
-        log.error("not able to find exam registration for exam {} and cand ID {}".format(exam_series_code, client_candidate_id))
+        audit_log.error("not able to find exam registration for exam {} and cand ID {}".format(exam_series_code, client_candidate_id))
         return HttpResponseRedirect(makeErrorURL(error_url, "noTestsAssigned"))
 
     # TODO: figure out what to do if there are more than one registrations....
@@ -886,14 +887,14 @@ def test_center_login(request):
     course_id = registration.course_id
     course = course_from_id(course_id)  # assume it will be found....
     if not course:
-        log.error("not able to find course from ID {} for cand ID {}".format(course_id, client_candidate_id))
+        audit_log.error("not able to find course from ID {} for cand ID {}".format(course_id, client_candidate_id))
         return HttpResponseRedirect(makeErrorURL(error_url, "incorrectCandidateTests"))
     exam = course.get_test_center_exam(exam_series_code)
     if not exam:
-        log.error("not able to find exam {} for course ID {} and cand ID {}".format(exam_series_code, course_id, client_candidate_id))
+        audit_log.error("not able to find exam {} for course ID {} and cand ID {}".format(exam_series_code, course_id, client_candidate_id))
         return HttpResponseRedirect(makeErrorURL(error_url, "incorrectCandidateTests"))
     location = exam.exam_url
-    log.info("proceeding with test of cand {} on exam {} for course {}: URL = {}".format(client_candidate_id, exam_series_code, course_id, location))
+    log.info("Proceeding with test of cand {} on exam {} for course {}: URL = {}".format(client_candidate_id, exam_series_code, course_id, location))
 
     # check if the test has already been taken
     timelimit_descriptor = modulestore().get_instance(course_id, Location(location))
@@ -910,7 +911,7 @@ def test_center_login(request):
         return HttpResponseRedirect(makeErrorURL(error_url, "missingClientProgram"))
 
     if timelimit_module and timelimit_module.has_ended:
-        log.warning("cand {} on exam {} for course {}: test already over at {}".format(client_candidate_id, exam_series_code, course_id, timelimit_module.ending_at))
+        audit_log.warning("cand {} on exam {} for course {}: test already over at {}".format(client_candidate_id, exam_series_code, course_id, timelimit_module.ending_at))
         return HttpResponseRedirect(makeErrorURL(error_url, "allTestsTaken"))
 
     # check if we need to provide an accommodation:
@@ -925,7 +926,7 @@ def test_center_login(request):
 
     if time_accommodation_code:
         timelimit_module.accommodation_code = time_accommodation_code
-        log.info("cand {} on exam {} for course {}: receiving accommodation {}".format(client_candidate_id, exam_series_code, course_id, time_accommodation_code))
+        audit_log.info("cand {} on exam {} for course {}: receiving accommodation {}".format(client_candidate_id, exam_series_code, course_id, time_accommodation_code))
 
     # UGLY HACK!!!
     # Login assumes that authentication has occurred, and that there is a
@@ -939,6 +940,7 @@ def test_center_login(request):
     # testcenteruser.user.backend = "%s.%s" % (backend.__module__, backend.__class__.__name__)
     testcenteruser.user.backend = "%s.%s" % ("TestcenterAuthenticationModule", "TestcenterAuthenticationClass")
     login(request, testcenteruser.user)
+    audit_log.info("Logged in user '{}' for test of cand {} on exam {} for course {}: URL = {}".format(testcenteruser.user.username, client_candidate_id, exam_series_code, course_id, location))
 
     # And start the test:
     return jump_to(request, course_id, location)

@@ -383,7 +383,7 @@ def change_enrollment(request):
                                "run:{0}".format(run)])
 
         try:
-            enrollment, created = CourseEnrollment.objects.get_or_create(user=user, course_id=course.id)
+            enrollment, _created = CourseEnrollment.objects.get_or_create(user=user, course_id=course.id)
         except IntegrityError:
             # If we've already created this enrollment in a separate transaction,
             # then just continue
@@ -409,7 +409,7 @@ def change_enrollment(request):
 
 
 @ensure_csrf_cookie
-def accounts_login(request, error=""):
+def accounts_login(_request, error=""):
 
     return render_to_response('login.html', {'error': error})
 
@@ -496,8 +496,8 @@ def logout_user(request):
     site can determine the logged in state of the user
     '''
 
-    logout(request)
     audit_log.info(u"Logout - {0}".format(request.user))
+    logout(request)
     response = redirect('/')
     response.delete_cookie(settings.EDXMKTG_COOKIE_NAME,
                            path='/',
@@ -603,7 +603,7 @@ def create_account(request, post_override=None):
         password = eamap.internal_password
         post_vars = dict(post_vars.items())
         post_vars.update(dict(email=email, name=name, password=password))
-        log.info('In create_account with external_auth: post_vars = %s' % post_vars)
+        log.debug(u'In create_account with external_auth: user = %s, email=%s', name, email)
 
     # Confirm we have a properly formed request
     for a in ['username', 'email', 'password', 'name']:

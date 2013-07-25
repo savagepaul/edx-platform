@@ -1,11 +1,13 @@
 '''
 Tests for student activation and login
 '''
+import json
+from mock import patch
+
 from django.test import TestCase
 from django.test.client import Client
-from django.core.urlresolvers import reverse
+from django.core.urlresolvers import reverse, NoReverseMatch
 from courseware.tests.factories import UserFactory, RegistrationFactory, UserProfileFactory
-import json
 
 
 class LoginTest(TestCase):
@@ -29,30 +31,37 @@ class LoginTest(TestCase):
         self.client = Client()
 
         # Store the login url
-        self.url = reverse('login')
+        try:
+            self.url = reverse('login_post')
+        except NoReverseMatch:
+            self.url = reverse('login')
 
     def test_login_success(self):
-        response = self._login_response('test@edx.org', 'test_password')
+        response, mock_audit_log = self._login_response('test@edx.org', 'test_password')
         self._assert_response(response, success=True)
+        self._assert_audit_log(mock_audit_log, 'info', [u'Login success', u'test@edx.org'])
 
     def test_login_success_unicode_email(self):
-        unicode_email = u'test@edx.org' + unichr(40960)
-
+        unicode_email = u'test' + unichr(40960) + u'@edx.org'
         self.user.email = unicode_email
         self.user.save()
 
-        response = self._login_response(unicode_email, 'test_password')
+        response, mock_audit_log = self._login_response(unicode_email, 'test_password')
         self._assert_response(response, success=True)
+        self._assert_audit_log(mock_audit_log, 'info', [u'Login success', unicode_email])
 
     def test_login_fail_no_user_exists(self):
-        response = self._login_response('not_a_user@edx.org', 'test_password')
+        nonexistent_email = u'not_a_user@edx.org'
+        response, mock_audit_log = self._login_response(nonexistent_email, 'test_password')
         self._assert_response(response, success=False,
                               value='Email or password is incorrect')
+        self._assert_audit_log(mock_audit_log, 'warning', [u'Login failed', u'Unknown user email', nonexistent_email])
 
     def test_login_fail_wrong_password(self):
-        response = self._login_response('test@edx.org', 'wrong_password')
+        response, mock_audit_log = self._login_response('test@edx.org', 'wrong_password')
         self._assert_response(response, success=False,
                               value='Email or password is incorrect')
+        self._assert_audit_log(mock_audit_log, 'warning', [u'Login failed', u'password for', u'test@edx.org', u'invalid'])
 
     def test_login_not_activated(self):
         # De-activate the user
@@ -60,24 +69,38 @@ class LoginTest(TestCase):
         self.user.save()
 
         # Should now be unable to login
-        response = self._login_response('test@edx.org', 'test_password')
+        response, mock_audit_log = self._login_response('test@edx.org', 'test_password')
         self._assert_response(response, success=False,
                               value="This account has not been activated")
+        self._assert_audit_log(mock_audit_log, 'warning', [u'Login failed', u'Account not active for user'])
 
     def test_login_unicode_email(self):
         unicode_email = u'test@edx.org' + unichr(40960)
-        response = self._login_response(unicode_email, 'test_password')
+        response, mock_audit_log = self._login_response(unicode_email, 'test_password')
         self._assert_response(response, success=False)
+        self._assert_audit_log(mock_audit_log, 'warning', [u'Login failed', unicode_email])
 
     def test_login_unicode_password(self):
         unicode_password = u'test_password' + unichr(1972)
-        response = self._login_response('test@edx.org', unicode_password)
+        response, mock_audit_log = self._login_response('test@edx.org', unicode_password)
         self._assert_response(response, success=False)
+        self._assert_audit_log(mock_audit_log, 'warning', [u'Login failed', u'password for', u'test@edx.org', u'invalid'])
+
+    def test_logout_logging(self):
+        response, _ = self._login_response('test@edx.org', 'test_password')
+        self._assert_response(response, success=True)
+        logout_url = reverse('logout')
+        with patch('student.views.audit_log') as mock_audit_log:
+            response = self.client.post(logout_url)
+        self.assertEqual(response.status_code, 302)
+        self._assert_audit_log(mock_audit_log, 'info', [u'Logout', u'test'])
 
     def _login_response(self, email, password):
         ''' Post the login info '''
         post_params = {'email': email, 'password': password}
-        return self.client.post(self.url, post_params)
+        with patch('student.views.audit_log') as mock_audit_log:
+            result = self.client.post(self.url, post_params)
+        return result, mock_audit_log
 
     def _assert_response(self, response, success=None, value=None):
         '''
@@ -105,3 +128,16 @@ class LoginTest(TestCase):
             msg = ("'%s' did not contain '%s'" %
                    (str(response_dict['value']), str(value)))
             self.assertTrue(value in response_dict['value'], msg)
+
+    def _assert_audit_log(self, mock_audit_log, level, log_strings):
+        """
+        Check that the audit log has received the expected call.
+        """
+        method_calls = mock_audit_log.method_calls
+        self.assertEquals(len(method_calls), 1)
+        name, args, _kwargs = method_calls[0]
+        self.assertEquals(name, level)
+        self.assertEquals(len(args), 1)
+        format_string = args[0]
+        for log_string in log_strings:
+            self.assertIn(log_string, format_string)

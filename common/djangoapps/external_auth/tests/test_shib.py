@@ -3,6 +3,7 @@ Tests for Shibboleth Authentication
 @jbau
 """
 import unittest
+from mock import patch
 
 from django.conf import settings
 from django.http import HttpResponseRedirect
@@ -10,7 +11,6 @@ from django.test.client import RequestFactory, Client as DjangoTestClient
 from django.test.utils import override_settings
 from django.core.urlresolvers import reverse
 from django.contrib.auth.models import AnonymousUser, User
-from django.contrib.sessions.backends.base import SessionBase
 from django.utils.importlib import import_module
 
 from xmodule.modulestore.tests.factories import CourseFactory
@@ -27,11 +27,11 @@ from student.views import create_account, change_enrollment
 from student.models import UserProfile, Registration, CourseEnrollment
 from student.tests.factories import UserFactory
 
-#Shib is supposed to provide 'REMOTE_USER', 'givenName', 'sn', 'mail', 'Shib-Identity-Provider'
-#attributes via request.META.  We can count on 'Shib-Identity-Provider', and 'REMOTE_USER' being present
-#b/c of how mod_shib works but should test the behavior with the rest of the attributes present/missing
+# Shib is supposed to provide 'REMOTE_USER', 'givenName', 'sn', 'mail', 'Shib-Identity-Provider'
+# attributes via request.META.  We can count on 'Shib-Identity-Provider', and 'REMOTE_USER' being present
+# b/c of how mod_shib works but should test the behavior with the rest of the attributes present/missing
 
-#For the sake of python convention we'll make all of these variable names ALL_CAPS
+# For the sake of python convention we'll make all of these variable names ALL_CAPS
 IDP = 'https://idp.stanford.edu/'
 REMOTE_USER = 'test_user@stanford.edu'
 MAILS = [None, '', 'test_user@stanford.edu']
@@ -93,7 +93,6 @@ class ShibSPTest(ModuleStoreTestCase):
         self.assertEqual(no_idp_response.status_code, 403)
         self.assertIn("identity server did not return your ID information", no_idp_response.content)
 
-
     @unittest.skipUnless(settings.MITX_FEATURES.get('AUTH_USE_SHIB'), True)
     def test_shib_login(self):
         """
@@ -140,26 +139,69 @@ class ShibSPTest(ModuleStoreTestCase):
                                      'REMOTE_USER': remote_user,
                                      'mail': remote_user})
                 request.user = AnonymousUser()
-                response = shib_login(request)
+                with patch('external_auth.views.audit_log') as mock_audit_log:
+                    response = shib_login(request)
+                audit_log_calls = mock_audit_log.method_calls
+
                 if idp == "https://idp.stanford.edu/" and remote_user == 'withmap@stanford.edu':
                     self.assertIsInstance(response, HttpResponseRedirect)
                     self.assertEqual(request.user, user_w_map)
                     self.assertEqual(response['Location'], '/')
+                    # verify logging:
+                    self.assertEquals(len(audit_log_calls), 2)
+                    name, args, _kwargs = audit_log_calls[0]
+                    self.assertEquals(name, 'info')
+                    self.assertEquals(len(args), 2)
+                    self.assertIn(u'logged in via Shibboleth', args[0])
+                    self.assertEquals(remote_user, args[1])
+                    name, args, _kwargs = audit_log_calls[1]
+                    self.assertEquals(name, 'info')
+                    self.assertEquals(len(args), 3)
+                    self.assertIn(u'Login success', args[0])
+                    self.assertEquals(remote_user, args[2])
                 elif idp == "https://idp.stanford.edu/" and remote_user == 'inactive@stanford.edu':
                     self.assertEqual(response.status_code, 403)
                     self.assertIn("Account not yet activated: please look for link in your email", response.content)
+                    # verify logging:
+                    self.assertEquals(len(audit_log_calls), 2)
+                    name, args, _kwargs = audit_log_calls[0]
+                    self.assertEquals(name, 'info')
+                    self.assertEquals(len(args), 2)
+                    self.assertIn(u'logged in via Shibboleth', args[0])
+                    self.assertEquals(remote_user, args[1])
+                    name, args, _kwargs = audit_log_calls[1]
+                    self.assertEquals(name, 'warning')
+                    self.assertEquals(len(args), 2)
+                    self.assertIn(u'is not active after external login', args[0])
+                    # self.assertEquals(remote_user, args[1])
                 elif idp == "https://idp.stanford.edu/" and remote_user == 'womap@stanford.edu':
                     self.assertIsNotNone(ExternalAuthMap.objects.get(user=user_wo_map))
                     self.assertIsInstance(response, HttpResponseRedirect)
                     self.assertEqual(request.user, user_wo_map)
                     self.assertEqual(response['Location'], '/')
+                    # verify logging:
+                    self.assertEquals(len(audit_log_calls), 2)
+                    name, args, _kwargs = audit_log_calls[0]
+                    self.assertEquals(name, 'info')
+                    self.assertEquals(len(args), 2)
+                    self.assertIn(u'logged in via Shibboleth', args[0])
+                    self.assertEquals(remote_user, args[1])
+                    name, args, _kwargs = audit_log_calls[1]
+                    self.assertEquals(name, 'info')
+                    self.assertEquals(len(args), 3)
+                    self.assertIn(u'Login success', args[0])
+                    self.assertEquals(remote_user, args[2])
                 elif idp == "https://someother.idp.com/" and remote_user in \
                             ['withmap@stanford.edu', 'womap@stanford.edu', 'inactive@stanford.edu']:
                     self.assertEqual(response.status_code, 403)
                     self.assertIn("You have already created an account using an external login", response.content)
+                    # no audit logging calls
+                    self.assertEquals(len(audit_log_calls), 0)
                 else:
                     self.assertEqual(response.status_code, 200)
                     self.assertContains(response, "<title>Register for")
+                    # no audit logging calls
+                    self.assertEquals(len(audit_log_calls), 0)
 
     @unittest.skipUnless(settings.MITX_FEATURES.get('AUTH_USE_SHIB'), True)
     def test_registration_form(self):
@@ -200,25 +242,45 @@ class ShibSPTest(ModuleStoreTestCase):
         Uses django test client for its session support
         """
         for identity in gen_all_identities():
-            #First we pop the registration form
+            # First we pop the registration form
             client = DjangoTestClient()
             response1 = client.get(path='/shib-login/', data={}, follow=False, **identity)
-            #Then we have the user answer the registration form
+            # Then we have the user answer the registration form
             postvars = {'email': 'post_email@stanford.edu',
                         'username': 'post_username',
                         'password': 'post_password',
                         'name': 'post_name',
                         'terms_of_service': 'true',
                         'honor_code': 'true'}
-            #use RequestFactory instead of TestClient here because we want access to request.user
+            # use RequestFactory instead of TestClient here because we want access to request.user
             request2 = self.request_factory.post('/create_account', data=postvars)
             request2.session = client.session
             request2.user = AnonymousUser()
-            response2 = create_account(request2)
+            with patch('student.views.audit_log') as mock_audit_log:
+                response2 = create_account(request2)
 
             user = request2.user
             mail = identity.get('mail')
-            #check that the created user has the right email, either taken from shib or user input
+
+            # verify logging:
+            audit_log_calls = mock_audit_log.method_calls
+            self.assertEquals(len(audit_log_calls), 3)
+            name, args, _kwargs = audit_log_calls[0]
+            self.assertEquals(name, 'info')
+            self.assertEquals(len(args), 1)
+            self.assertIn(u'Login success on new account creation', args[0])
+            self.assertIn(u'post_username', args[0])
+            name, args, _kwargs = audit_log_calls[1]
+            self.assertEquals(name, 'info')
+            self.assertEquals(len(args), 1)
+            self.assertIn(u'User registered with external_auth', args[0])
+            self.assertIn(u'post_username', args[0])
+            name, args, _kwargs = audit_log_calls[2]
+            self.assertEquals(name, 'info')
+            self.assertEquals(len(args), 1)
+            self.assertIn(u'Updated ExternalAuthMap for post_username to be [test_user@stanford.edu]', args[0])
+
+            # check that the created user has the right email, either taken from shib or user input
             if mail:
                 self.assertEqual(user.email, mail)
                 self.assertEqual(list(User.objects.filter(email=postvars['email'])), [])
@@ -228,7 +290,7 @@ class ShibSPTest(ModuleStoreTestCase):
                 self.assertEqual(list(User.objects.filter(email=mail)), [])
                 self.assertIsNotNone(User.objects.get(email=postvars['email']))  # get enforces only 1 such user
 
-            #check that the created user profile has the right name, either taken from shib or user input
+            # check that the created user profile has the right name, either taken from shib or user input
             profile = UserProfile.objects.get(user=user)
             sn_empty = not identity.get('sn')
             given_name_empty = not identity.get('givenName')
@@ -236,7 +298,7 @@ class ShibSPTest(ModuleStoreTestCase):
                 self.assertEqual(profile.name, postvars['name'])
             else:
                 self.assertEqual(profile.name, request2.session['ExternalAuthMap'].external_name)
-            #clean up for next loop
+            # clean up for next loop
             request2.session['ExternalAuthMap'].delete()
             UserProfile.objects.filter(user=user).delete()
             Registration.objects.filter(user=user).delete()
