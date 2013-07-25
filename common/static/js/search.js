@@ -118,17 +118,23 @@ function replaceWithSearch(){
 function updateOldSearch(){
     var params = getParameters();
     var newBox = constructSearchBox(params.s);
-    var courseTab = $("li a:contains('Search')").get(0);
+    var courseTab = $("#search-bar").get(0);
     if (typeof courseTab != 'undefined'){
         courseTab.parentNode.replaceChild(newBox, courseTab);
     }
 }
 
+function wrapText(element){
+    $(element).wrapInner("<span id=text-wrapper />");
+    $("#text-wrapper").className="search-wrapper";
+}
+
 $(document).ready(function(){
+    wrapText($("#search-bar"));
     if (document.URL.indexOf("search?s=") !== -1){
         updateOldSearch();
     } else {
-        $("li a:contains('Search')").bind("click", replaceWithSearch);
+        $("#text-wrapper").bind("click", replaceWithSearch);
     }
 });
 

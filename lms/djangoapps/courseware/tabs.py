@@ -191,12 +191,6 @@ def _notes_tab(tab, user, course, active_page):
     return []
 
 
-def _search_tab(tab, user, course, active_page):
-    """This is a stub meant to be updated through javascript immediately after being loaded"""
-    link = "#"
-    return [CourseTab("Search", link, False)]
-
-
 #### Validators
 
 
@@ -238,8 +232,7 @@ VALID_TAB_TYPES = {
     'peer_grading': TabImpl(null_validator, _peer_grading),
     'staff_grading': TabImpl(null_validator, _staff_grading),
     'open_ended': TabImpl(null_validator, _combined_open_ended_grading),
-    'notes': TabImpl(null_validator, _notes_tab),
-    "search": TabImpl(null_validator, _search_tab)
+    'notes': TabImpl(null_validator, _notes_tab)
 }
 
 
@@ -268,9 +261,6 @@ def validate_tabs(course):
     if tabs[1]['type'] != 'course_info':
         raise InvalidTabsException(
             "Expected second tab to have type 'course_info'.  tabs: '{0}'".format(tabs))
-    # if tabs[-1]['type'] != "search":
-    #     raise InvalidTabsException(
-    #         "Expected last tab to have type 'search'. tabs: '{0}'".format(tabs))
     for t in tabs:
         if t['type'] not in VALID_TAB_TYPES:
             raise InvalidTabsException("Unknown tab type {0}. Known types: {1}"
@@ -301,9 +291,6 @@ def get_course_tabs(user, course, active_page):
         # multiple tabs.
         gen = VALID_TAB_TYPES[tab['type']].generator
         tabs.extend(gen(tab, user, course, active_page))
-
-    if course.tabs[-1]['type'] != "search":
-        tabs.extend(_search_tab({''}, user, course, active_page))
 
     # Instructor tab is special--automatically added if user is staff for the course
     if has_access(user, course, 'staff'):
@@ -360,8 +347,6 @@ def get_default_tabs(user, course, active_page):
     if has_access(user, course, 'staff'):
         link = reverse('instructor_dashboard', args=[course.id])
         tabs.append(CourseTab('Instructor', link, active_page == 'instructor'))
-
-    tabs.extend(_search_tab({''}, user, course, active_page))
 
     return tabs
 
