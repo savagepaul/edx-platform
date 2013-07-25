@@ -7,7 +7,7 @@
 			<input type="text" class="date" value="<%= updateModel.get('date') %>">
 		</div>
 		<div class="row">
-			<textarea class="new-update-content text-editor"><%= updateModel.get('content') %></textarea>
+			<div class="editor" style="height: 10em;"><%= updateModel.get('content') %></div>
 		</div>
 		<div class="row">
 			<!-- cid rather than id b/c new ones have cid's not id's -->
