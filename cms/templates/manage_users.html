@@ -116,11 +116,9 @@
                 <a href="#" class="admin-role toggle-admin-role ${'remove' if is_instuctor else 'add'}-admin-role">${_("Remove Admin Access") if is_instuctor else _("Add Admin Access")}</a>
               % endif
             </li>
-            % if request.user.id != user.id: ## can't remove yourself
             <li class="action action-delete">
                 <a href="#" class="delete remove-user action-icon" data-id="${user.email}"><i class="icon-trash"></i><span class="sr">${_("Delete the user,")} ${user.username}</span></a>
             </li>
-            % endif
           </ul>
           % endif
 
