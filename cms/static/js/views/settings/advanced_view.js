@@ -45,9 +45,11 @@ CMS.Views.Settings.Advanced = CMS.Views.ValidatingView.extend({
         editor.setTheme("ace/theme/chrome");
         editor.getSession().setMode("ace/mode/json");
         editor.setFontSize(20);
-        editor.setOption("showGutter", false);
+        editor.setHighlightActiveLine(false);
+        editor.renderer.setShowGutter(false);
         value = JSON.stringify(obj, null, "  ");
         editor.setValue(value);
+        editor.selection.clearSelection();
         editor.on("change", function(e) {
             if (editor.getValue() !== value) {
                 var message = gettext("Your changes will not take effect until you save your progress. Take care with key and value formatting, as validation is not implemented.");
@@ -65,6 +67,7 @@ CMS.Views.Settings.Advanced = CMS.Views.ValidatingView.extend({
             var stringValue = $.trim(editor.getValue());
             // update ace to show the trimmed value.
             editor.setValue(stringValue);
+            editor.selection.clearSelection();
             var JSONValue;
             try {
                 JSONValue = JSON.parse(stringValue);
