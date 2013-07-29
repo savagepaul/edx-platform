@@ -1,28 +1,28 @@
 (function () {
-    update = function() {
-        function create_handler(saved_div) {
-            return (function(response) {
-                if (saved_div.data('last-response') > response['request-start']) {
-                    return;
-                }
-                else {
-                    saved_div.data('last-response', response['request-start']);
-                }
+    function create_handler(saved_div) {
+        return (function(response) {
+            if (saved_div.data('last-response') > response['request-start']) {
+                return;
+            }
+            else {
+                saved_div.data('last-response', response['request-start']);
+            }
 
-                var jax = MathJax.Hub.getAllJax(saved_div[0])[0];
-                var math_code;
-                if (response.error) {
-                    math_code = "\text{" + response.error + "}";
-                    //saved_div.html("<span class='error'>" + response.error + "</span>");
-                } else {
-                    math_code = response.preview;
-                    //saved_div.html(response.preview);
-                }
-                MathJax.Hub.Queue(['Text', jax, math_code],
-                                  ['Reprocess', jax]);
-            });
-        }
+            var jax = MathJax.Hub.getAllJax(saved_div[0])[0];
+            var math_code;
+            if (response.error) {
+                math_code = "\text{" + response.error + "}";
+                //saved_div.html("<span class='error'>" + response.error + "</span>");
+            } else {
+                math_code = response.preview;
+                //saved_div.html(response.preview);
+            }
+            MathJax.Hub.Queue(['Text', jax, math_code],
+                              ['Reprocess', jax]);
+        });
+    }
 
+    function update() {
         prev_id = "#" + this.id + "_preview";
         preview_div = $(prev_id);
 
